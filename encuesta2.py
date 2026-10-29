@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
 import base64
-from streamlit_gsheets import GSheetsConnection
+import gspread
 
 # ============================================================
 # 1. CONFIGURACIÓN
@@ -14,20 +14,29 @@ st.set_page_config(
     page_icon="🍩"
 )
 
-# URL pública de tu Google Sheet
-GSHEET_URL = "https://docs.google.com/spreadsheets/d/1MfxIbBTKLN1xyNIc_WKnHM0755uX5N9zCd_mUKyy63E/edit?usp=sharing"
+# ID de tu Google Sheet (sin ?usp=sharing)
+SHEET_ID = "1MfxIbBTKLN1xyNIc_WKnHM0755uX5N9zCd_mUKyy63E"
 
 # ============================================================
-# 2. CARGA DE DATOS DESDE GOOGLE SHEETS
+# 2. CARGA DE DATOS CON GSPREAD (MODO PÚBLICO)
 # ============================================================
 @st.cache_data(ttl=600, show_spinner="Cargando datos desde Google Sheets...")
 def cargar_datos():
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
+        # Cliente público: funciona con hojas compartidas por enlace
+        gc = gspread.public_client
+        sh = gc.open_by_key(SHEET_ID)
 
-        # Leer las dos pestañas (URL explícita para modo público)
-        df_votos = conn.read(spreadsheet=GSHEET_URL, worksheet="datos", ttl=0)
-        df_logos = conn.read(spreadsheet=GSHEET_URL, worksheet="logos", ttl=0)
+        # Leer pestaña "datos"
+        ws_datos = sh.worksheet("datos")
+        df_votos = pd.DataFrame(ws_datos.get_all_records())
+
+        # Leer pestaña "logos" (si existe)
+        try:
+            ws_logos = sh.worksheet("logos")
+            df_logos = pd.DataFrame(ws_logos.get_all_records())
+        except gspread.WorksheetNotFound:
+            df_logos = pd.DataFrame()
 
         # Validar columnas mínimas
         columnas_requeridas = {"candidato", "intencion_voto"}
@@ -40,7 +49,9 @@ def cargar_datos():
             return pd.DataFrame()
 
         # Merge de logos
-        if "partido_politico" in df_votos.columns and "partido_politico" in df_logos.columns:
+        if (not df_logos.empty
+                and "partido_politico" in df_votos.columns
+                and "partido_politico" in df_logos.columns):
             df_final = pd.merge(
                 df_votos,
                 df_logos[["partido_politico", "logo_url"]],
@@ -68,14 +79,23 @@ def cargar_datos():
             by="intencion_voto", ascending=False
         ).reset_index(drop=True)
 
-    except Exception as e:
-        st.error(f"❌ Error al cargar Google Sheets: {e}")
-        st.info(
-            "🔍 Revisa:\n"
+    except gspread.SpreadsheetNotFound:
+        st.error(
+            "❌ No se encontró la hoja. Verifica:\n"
             "1. Que la hoja esté compartida como **'Cualquier persona con el enlace (Lector)'**.\n"
-            "2. Que las pestañas se llamen exactamente **datos** y **logos**.\n"
-            "3. Que la URL en `GSHEET_URL` sea la correcta (sin `?usp=sharing`)."
+            f"2. Que el ID sea correcto: `{SHEET_ID}`"
         )
+        return pd.DataFrame()
+
+    except gspread.WorksheetNotFound as e:
+        st.error(
+            f"❌ No se encontró la pestaña: {e}. "
+            "Debe llamarse exactamente **datos** (minúscula, sin espacios)."
+        )
+        return pd.DataFrame()
+
+    except Exception as e:
+        st.error(f"❌ Error al cargar Google Sheets: {type(e).__name__}: {e}")
         return pd.DataFrame()
 
 
@@ -268,7 +288,6 @@ if total_votos > 0:
         amplitud_angulo = (votos / total_votos) * 360
         angulo_medio = angulo_inicio - (amplitud_angulo / 2)
 
-        # Logo
         if row['candidato'] in controles_logos:
             angulo_extra_logo, radio_logo = controles_logos[row['candidato']]
         else:
@@ -278,12 +297,10 @@ if total_votos > 0:
         pos_x_logo = 0.5 + radio_logo * np.cos(angulo_rad_logo)
         pos_y_logo = 0.5 + radio_logo * np.sin(angulo_rad_logo)
 
-        # Porcentaje
         radio_porcentaje = 0.38
         pos_x_pct = 0.5 + radio_porcentaje * np.cos(angulo_rad_logo)
         pos_y_pct = 0.5 + radio_porcentaje * np.sin(angulo_rad_logo)
 
-        # Nombre
         if row['candidato'] in controles_nombres:
             angulo_extra_nom, radio_extra_nom = controles_nombres[row['candidato']]
         else:
@@ -293,7 +310,6 @@ if total_votos > 0:
         pos_x_nom = 0.5 + radio_extra_nom * np.cos(angulo_rad_nom)
         pos_y_nom = 0.5 + radio_extra_nom * np.sin(angulo_rad_nom)
 
-        # Líneas conectoras
         if mostrar_lineas:
             fig_dona.add_shape(
                 type="line",
@@ -312,7 +328,6 @@ if total_votos > 0:
                 line_width=1, opacity=0.8
             )
 
-        # Logo con manejo de error
         tamanio_logo_usar = tamanios_individuales.get(
             row['candidato'], tamanio_logo_general)
 
@@ -330,9 +345,8 @@ if total_votos > 0:
                     )
                 )
             except Exception:
-                pass  # Si la URL falla, no rompe el gráfico
+                pass
 
-        # Porcentaje o posición
         texto_mostrar = f"{idx+1}°" if mostrar_posiciones else f"{votos:.1f}%"
 
         fig_dona.add_annotation(
@@ -345,7 +359,6 @@ if total_votos > 0:
             align='center'
         )
 
-        # Nombre
         if mostrar_nombres:
             offset_x_nom = 0.04 if pos_x_nom < 0.5 else -0.04
             offset_y_nom = -0.045
