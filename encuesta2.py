@@ -8,22 +8,36 @@ from streamlit_gsheets import GSheetsConnection
 # ============================================================
 # 1. CONFIGURACIÓN
 # ============================================================
-st.set_page_config(page_title="Donut Interactivo",
-                   layout="wide", page_icon="🍩")
+st.set_page_config(
+    page_title="Donut Interactivo",
+    layout="wide",
+    page_icon="🍩"
+)
+
+# URL pública de tu Google Sheet
+GSHEET_URL = "https://docs.google.com/spreadsheets/d/1MfxIbBTKLN1xyNIc_WKnHM0755uX5N9zCd_mUKyy63E/edit"
 
 # ============================================================
 # 2. CARGA DE DATOS DESDE GOOGLE SHEETS
 # ============================================================
-
-
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando datos desde Google Sheets...")
 def cargar_datos():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
 
-        # Leer las dos pestañas de la Google Sheet
-        df_votos = conn.read(worksheet="datos", ttl=0)
-        df_logos = conn.read(worksheet="logos", ttl=0)
+        # Leer las dos pestañas (URL explícita para modo público)
+        df_votos = conn.read(spreadsheet=GSHEET_URL, worksheet="datos", ttl=0)
+        df_logos = conn.read(spreadsheet=GSHEET_URL, worksheet="logos", ttl=0)
+
+        # Validar columnas mínimas
+        columnas_requeridas = {"candidato", "intencion_voto"}
+        faltantes = columnas_requeridas - set(df_votos.columns)
+        if faltantes:
+            st.error(
+                f"❌ Faltan columnas en la pestaña **datos**: {', '.join(faltantes)}. "
+                f"Columnas encontradas: {', '.join(df_votos.columns)}"
+            )
+            return pd.DataFrame()
 
         # Merge de logos
         if "partido_politico" in df_votos.columns and "partido_politico" in df_logos.columns:
@@ -38,17 +52,16 @@ def cargar_datos():
             df_final["logo_url"] = None
 
         # Limpieza de votos
-        df_final['intencion_voto'] = pd.to_numeric(
-            df_final['intencion_voto'], errors='coerce'
+        df_final["intencion_voto"] = pd.to_numeric(
+            df_final["intencion_voto"], errors="coerce"
         ).fillna(0.0)
 
-        # Si vienen en formato 0-1, convertir a porcentaje
-        df_final.loc[df_final['intencion_voto'] <= 1.0,
-                     'intencion_voto'] = df_final['intencion_voto'] * 100
+        # Convertir de 0-1 a porcentaje si aplica
+        df_final.loc[df_final["intencion_voto"] <= 1.0, "intencion_voto"] *= 100
 
         # Filtrar candidatos válidos
         df_final = df_final[
-            df_final['candidato'].notna() & (df_final['candidato'] != 'mm')
+            df_final["candidato"].notna() & (df_final["candidato"] != "mm")
         ]
 
         return df_final.sort_values(
@@ -56,7 +69,13 @@ def cargar_datos():
         ).reset_index(drop=True)
 
     except Exception as e:
-        st.error(f"Error al cargar Google Sheets: {e}")
+        st.error(f"❌ Error al cargar Google Sheets: {e}")
+        st.info(
+            "🔍 Revisa:\n"
+            "1. Que la hoja esté compartida como **'Cualquier persona con el enlace (Lector)'**.\n"
+            "2. Que las pestañas se llamen exactamente **datos** y **logos**.\n"
+            "3. Que la URL en `GSHEET_URL` sea la correcta (sin `?usp=sharing`)."
+        )
         return pd.DataFrame()
 
 
@@ -83,7 +102,7 @@ if not df.empty:
         ).reset_index(drop=True)
 
 # ============================================================
-# 4. VALIDACIÓN: si no hay datos, detener limpiamente
+# 4. VALIDACIÓN
 # ============================================================
 if df_filtrado.empty:
     st.warning("⚠️ No hay datos disponibles para esta combinación.")
@@ -95,7 +114,6 @@ if df_filtrado.empty:
 st.sidebar.markdown("---")
 st.sidebar.header("🎨 Personalización del Donut")
 
-# ---- Posición de la leyenda ----
 posicion_leyenda = st.sidebar.selectbox(
     "📍 Posición de la Leyenda:",
     ["Derecha", "Izquierda", "Abajo", "Arriba", "Ocultar"],
@@ -111,11 +129,7 @@ mapa_leyenda = {
 }
 leyenda_config = mapa_leyenda[posicion_leyenda]
 
-# ---- Mostrar nombres ----
-mostrar_nombres = st.sidebar.checkbox(
-    "📝 Mostrar nombres cerca del donut", value=False)
-
-# ---- Mostrar posiciones en lugar de porcentajes ----
+mostrar_nombres = st.sidebar.checkbox("📝 Mostrar nombres cerca del donut", value=False)
 mostrar_posiciones = st.sidebar.checkbox(
     "🏆 Mostrar posiciones (1°, 2°, 3°...) en lugar de porcentajes",
     value=False,
@@ -123,35 +137,23 @@ mostrar_posiciones = st.sidebar.checkbox(
          "Si está desactivado, muestra el porcentaje numérico."
 )
 
-# ---- Paleta base ----
 paleta_base = st.sidebar.selectbox(
     "🎨 Paleta de Colores Base:",
     ["Verde", "Azul", "Rojo", "Naranja", "Morado", "Turquesa", "Rosa", "Amarillo"],
     index=0
 )
 
-# ---- Intensidad ----
-intensidad_max = st.sidebar.slider(
-    "🎯 Intensidad Máxima (Líder):", 0.5, 1.0, 0.95, 0.05)
-intensidad_min = st.sidebar.slider(
-    "🎯 Intensidad Mínima (Último):", 0.1, 0.5, 0.25, 0.05)
+intensidad_max = st.sidebar.slider("🎯 Intensidad Máxima (Líder):", 0.5, 1.0, 0.95, 0.05)
+intensidad_min = st.sidebar.slider("🎯 Intensidad Mínima (Último):", 0.1, 0.5, 0.25, 0.05)
 
-# ---- Tamaños ----
-tamanio_logo_general = st.sidebar.slider(
-    "📐 Tamaño General del Logo:", 0.04, 0.20, 0.09, 0.01)
-tamanio_nombre = st.sidebar.slider(
-    "📝 Tamaño del Nombre:", 8, 20, 12, 1)
-tamanio_porcentaje = st.sidebar.slider(
-    "📊 Tamaño del Porcentaje:", 8, 20, 14, 1)
-
-# ---- Líneas conectoras ----
-mostrar_lineas = st.sidebar.checkbox(
-    "🔗 Mostrar líneas conectoras", value=True)
+tamanio_logo_general = st.sidebar.slider("📐 Tamaño General del Logo:", 0.04, 0.20, 0.09, 0.01)
+tamanio_nombre = st.sidebar.slider("📝 Tamaño del Nombre:", 8, 20, 12, 1)
+tamanio_porcentaje = st.sidebar.slider("📊 Tamaño del Porcentaje:", 8, 20, 14, 1)
+mostrar_lineas = st.sidebar.checkbox("🔗 Mostrar líneas conectoras", value=True)
 
 st.sidebar.markdown("---")
 st.sidebar.header("🎯 Controles Individuales")
 
-# ---- Controles individuales ----
 controles_logos = {}
 controles_nombres = {}
 tamanios_individuales = {}
@@ -159,7 +161,6 @@ tamanios_individuales = {}
 for idx, row in df_filtrado.iterrows():
     st.sidebar.markdown(f"**{row['candidato']}**")
 
-    # Tamaño individual del logo
     tamanio_individual = st.sidebar.slider(
         "📐 Tamaño Logo",
         min_value=0.02, max_value=0.25,
@@ -168,7 +169,6 @@ for idx, row in df_filtrado.iterrows():
     )
     tamanios_individuales[row['candidato']] = tamanio_individual
 
-    # Posición del logo
     st.sidebar.markdown("🖼️ **Posición Logo**")
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -181,7 +181,6 @@ for idx, row in df_filtrado.iterrows():
         radio_logo = 0.50
     controles_logos[row['candidato']] = (angulo_logo, radio_logo)
 
-    # Posición del nombre
     st.sidebar.markdown("📝 **Posición Nombre**")
     col5, col6 = st.sidebar.columns(2)
     with col5:
@@ -201,10 +200,7 @@ for idx, row in df_filtrado.iterrows():
 # ============================================================
 # 6. GENERAR PALETA CON DEGRADADO
 # ============================================================
-
-
 def generar_paleta_degradada(paleta_base, n_colores, intensidad_max, intensidad_min):
-    """Genera colores donde el más votado es más intenso y el menos votado más pálido."""
     colores_base = {
         "Verde":    {'r': 76,  'g': 175, 'b': 80},
         "Azul":     {'r': 33,  'g': 150, 'b': 243},
@@ -221,12 +217,10 @@ def generar_paleta_degradada(paleta_base, n_colores, intensidad_max, intensidad_
     for i in range(n_colores):
         t = i / (n_colores - 1) if n_colores > 1 else 0
         intensidad = intensidad_max - (intensidad_max - intensidad_min) * t
-
         r = int(base['r'] * intensidad + 255 * (1 - intensidad))
         g = int(base['g'] * intensidad + 255 * (1 - intensidad))
         b = int(base['b'] * intensidad + 255 * (1 - intensidad))
         colores.append(f'#{r:02x}{g:02x}{b:02x}')
-
     return colores
 
 
@@ -252,7 +246,6 @@ fig_dona.add_trace(go.Pie(
     showlegend=True,
 ))
 
-# Cada slice con su propia entrada de leyenda
 for i in range(len(df_filtrado)):
     fig_dona.data[0].update(
         legendgroup=df_filtrado.iloc[i]['candidato'],
@@ -275,7 +268,7 @@ if total_votos > 0:
         amplitud_angulo = (votos / total_votos) * 360
         angulo_medio = angulo_inicio - (amplitud_angulo / 2)
 
-        # ---- Logo ----
+        # Logo
         if row['candidato'] in controles_logos:
             angulo_extra_logo, radio_logo = controles_logos[row['candidato']]
         else:
@@ -285,12 +278,12 @@ if total_votos > 0:
         pos_x_logo = 0.5 + radio_logo * np.cos(angulo_rad_logo)
         pos_y_logo = 0.5 + radio_logo * np.sin(angulo_rad_logo)
 
-        # ---- Porcentaje ----
+        # Porcentaje
         radio_porcentaje = 0.38
         pos_x_pct = 0.5 + radio_porcentaje * np.cos(angulo_rad_logo)
         pos_y_pct = 0.5 + radio_porcentaje * np.sin(angulo_rad_logo)
 
-        # ---- Nombre ----
+        # Nombre
         if row['candidato'] in controles_nombres:
             angulo_extra_nom, radio_extra_nom = controles_nombres[row['candidato']]
         else:
@@ -300,7 +293,7 @@ if total_votos > 0:
         pos_x_nom = 0.5 + radio_extra_nom * np.cos(angulo_rad_nom)
         pos_y_nom = 0.5 + radio_extra_nom * np.sin(angulo_rad_nom)
 
-        # ---- Líneas conectoras ----
+        # Líneas conectoras
         if mostrar_lineas:
             fig_dona.add_shape(
                 type="line",
@@ -319,15 +312,16 @@ if total_votos > 0:
                 line_width=1, opacity=0.8
             )
 
-        # ---- Insertar logo ----
+        # Logo con manejo de error
         tamanio_logo_usar = tamanios_individuales.get(
             row['candidato'], tamanio_logo_general)
 
-        if pd.notna(row['logo_url']) and str(row['logo_url']).strip() != "":
+        logo_url = row.get('logo_url')
+        if pd.notna(logo_url) and str(logo_url).strip() != "":
             try:
                 fig_dona.add_layout_image(
                     dict(
-                        source=row['logo_url'],
+                        source=str(logo_url).strip(),
                         xref="paper", yref="paper",
                         x=pos_x_logo, y=pos_y_logo,
                         sizex=tamanio_logo_usar,
@@ -336,9 +330,9 @@ if total_votos > 0:
                     )
                 )
             except Exception:
-                pass
+                pass  # Si la URL falla, no rompe el gráfico
 
-        # ---- Porcentaje o posición ----
+        # Porcentaje o posición
         texto_mostrar = f"{idx+1}°" if mostrar_posiciones else f"{votos:.1f}%"
 
         fig_dona.add_annotation(
@@ -351,7 +345,7 @@ if total_votos > 0:
             align='center'
         )
 
-        # ---- Nombre ----
+        # Nombre
         if mostrar_nombres:
             offset_x_nom = 0.04 if pos_x_nom < 0.5 else -0.04
             offset_y_nom = -0.045
@@ -369,7 +363,7 @@ if total_votos > 0:
         angulo_inicio -= amplitud_angulo
 
 # ============================================================
-# 9. TEXTO CENTRAL (distrito/ámbito)
+# 9. TEXTO CENTRAL
 # ============================================================
 fig_dona.add_annotation(
     text=f"<b>{localidad}</b><br><span style='font-size:12px;'>{ambito}</span>",
@@ -445,8 +439,7 @@ with col1:
 with col2:
     try:
         import plotly.io as pio
-        img_bytes = pio.to_image(
-            fig_dona, format='png', width=1200, height=800)
+        img_bytes = pio.to_image(fig_dona, format='png', width=1200, height=800)
         b64_img = base64.b64encode(img_bytes).decode()
         href_img = (
             f'<a href="data:image/png;base64,{b64_img}" '
