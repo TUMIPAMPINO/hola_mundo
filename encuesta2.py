@@ -14,9 +14,6 @@ st.set_page_config(
     page_icon="🍩"
 )
 
-# URL de tu Google Sheet (SIN ?usp=sharing)
-GSHEET_URL = "https://docs.google.com/spreadsheets/d/1MfxIbBTKLN1xyNIc_WKnHM0755uX5N9zCd_mUKyy63E/edit"
-
 # ============================================================
 # 2. CARGA DE DATOS DESDE GOOGLE SHEETS
 # ============================================================
@@ -25,9 +22,9 @@ def cargar_datos():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
 
-        # Leer las dos pestañas
-        df_votos = conn.read(spreadsheet=GSHEET_URL, worksheet="datos", ttl=0)
-        df_logos = conn.read(spreadsheet=GSHEET_URL, worksheet="logos", ttl=0)
+        # La URL viene de los Secrets ([connections.gsheets])
+        df_votos = conn.read(worksheet="datos", ttl=0)
+        df_logos = conn.read(worksheet="logos", ttl=0)
 
         # Validar columnas mínimas
         columnas_requeridas = {"candidato", "intencion_voto"}
@@ -74,10 +71,9 @@ def cargar_datos():
         st.error(f"❌ Error al cargar Google Sheets: {type(e).__name__}: {e}")
         st.info(
             "🔍 Revisa:\n"
-            "1. Que la hoja esté compartida como **'Cualquier persona con el enlace (Lector)'**.\n"
-            "2. Que las pestañas se llamen exactamente **datos** y **logos**.\n"
-            "3. Que la URL en `GSHEET_URL` no tenga `?usp=sharing`.\n"
-            "4. Que los Secrets de Streamlit estén **vacíos**."
+            "1. Que en **Secrets** esté `[connections.gsheets]` con la URL terminada en `/edit`.\n"
+            "2. Que la hoja esté compartida como **'Cualquier persona con el enlace (Lector)'**.\n"
+            "3. Que las pestañas se llamen exactamente **datos** y **logos**."
         )
         return pd.DataFrame()
 
