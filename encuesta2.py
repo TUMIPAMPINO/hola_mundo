@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
 import base64
-import gspread
+from streamlit_gsheets import GSheetsConnection
 
 # ============================================================
 # 1. CONFIGURACIÓN
@@ -14,29 +14,20 @@ st.set_page_config(
     page_icon="🍩"
 )
 
-# ID de tu Google Sheet (sin ?usp=sharing)
-SHEET_ID = "1MfxIbBTKLN1xyNIc_WKnHM0755uX5N9zCd_mUKyy63E"
+# URL de tu Google Sheet (SIN ?usp=sharing)
+GSHEET_URL = "https://docs.google.com/spreadsheets/d/1MfxIbBTKLN1xyNIc_WKnHM0755uX5N9zCd_mUKyy63E/edit"
 
 # ============================================================
-# 2. CARGA DE DATOS CON GSPREAD (MODO PÚBLICO)
+# 2. CARGA DE DATOS DESDE GOOGLE SHEETS
 # ============================================================
 @st.cache_data(ttl=600, show_spinner="Cargando datos desde Google Sheets...")
 def cargar_datos():
     try:
-        # Cliente público: funciona con hojas compartidas por enlace
-        gc = gspread.public_client
-        sh = gc.open_by_key(SHEET_ID)
+        conn = st.connection("gsheets", type=GSheetsConnection)
 
-        # Leer pestaña "datos"
-        ws_datos = sh.worksheet("datos")
-        df_votos = pd.DataFrame(ws_datos.get_all_records())
-
-        # Leer pestaña "logos" (si existe)
-        try:
-            ws_logos = sh.worksheet("logos")
-            df_logos = pd.DataFrame(ws_logos.get_all_records())
-        except gspread.WorksheetNotFound:
-            df_logos = pd.DataFrame()
+        # Leer las dos pestañas
+        df_votos = conn.read(spreadsheet=GSHEET_URL, worksheet="datos", ttl=0)
+        df_logos = conn.read(spreadsheet=GSHEET_URL, worksheet="logos", ttl=0)
 
         # Validar columnas mínimas
         columnas_requeridas = {"candidato", "intencion_voto"}
@@ -79,23 +70,15 @@ def cargar_datos():
             by="intencion_voto", ascending=False
         ).reset_index(drop=True)
 
-    except gspread.SpreadsheetNotFound:
-        st.error(
-            "❌ No se encontró la hoja. Verifica:\n"
-            "1. Que la hoja esté compartida como **'Cualquier persona con el enlace (Lector)'**.\n"
-            f"2. Que el ID sea correcto: `{SHEET_ID}`"
-        )
-        return pd.DataFrame()
-
-    except gspread.WorksheetNotFound as e:
-        st.error(
-            f"❌ No se encontró la pestaña: {e}. "
-            "Debe llamarse exactamente **datos** (minúscula, sin espacios)."
-        )
-        return pd.DataFrame()
-
     except Exception as e:
         st.error(f"❌ Error al cargar Google Sheets: {type(e).__name__}: {e}")
+        st.info(
+            "🔍 Revisa:\n"
+            "1. Que la hoja esté compartida como **'Cualquier persona con el enlace (Lector)'**.\n"
+            "2. Que las pestañas se llamen exactamente **datos** y **logos**.\n"
+            "3. Que la URL en `GSHEET_URL` no tenga `?usp=sharing`.\n"
+            "4. Que los Secrets de Streamlit estén **vacíos**."
+        )
         return pd.DataFrame()
 
 
