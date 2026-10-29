@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 # URL pública de tu Google Sheet
-GSHEET_URL = "https://docs.google.com/spreadsheets/d/1MfxIbBTKLN1xyNIc_WKnHM0755uX5N9zCd_mUKyy63E/edit"
+GSHEET_URL = "https://docs.google.com/spreadsheets/d/1MfxIbBTKLN1xyNIc_WKnHM0755uX5N9zCd_mUKyy63E/edit?usp=sharing"
 
 # ============================================================
 # 2. CARGA DE DATOS DESDE GOOGLE SHEETS
